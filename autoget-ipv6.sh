@@ -4,9 +4,12 @@ iName=$(ip add | grep "^2: " | awk -F'[ :]' '{print $3}')
 dhclient -6 $iName #临时开启IPv6
 echo $iName #人工查看网卡是否正确
 cp /etc/network/interfaces /root
-sed -i "$ a iface $iName inet6 dhcp" /etc/network/interfaces
-echo "Reboot... & ping ipv6.google.com After reboot"
-reboot
+# 检查是否已存在该行，如果不存在则添加
+if ! grep -q "iface $iName inet6 dhcp" /etc/network/interfaces; then
+    sed -i "$ a iface $iName inet6 dhcp" /etc/network/interfaces
+fi
+sleep 2s
+echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
 Ubuntu_IPv6(){
@@ -36,7 +39,7 @@ network:
 
 netplan apply
 sleep 2s
-ping ipv6.google.com
+echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
 myOS=$(hostnamectl | sed -n 's_.*System: \(\S*\).*_\1_p')
