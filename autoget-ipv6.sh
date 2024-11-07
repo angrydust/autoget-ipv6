@@ -1,54 +1,68 @@
 Debian_IPv6(){
 
-iName=$(ip add | grep "^2: " | awk -F'[ :]' '{print $3}')
-dhclient -6 $iName #临时开启IPv6
-echo $iName #人工查看网卡是否正确
-cp /etc/network/interfaces /root
-# 检查是否已存在该行，如果不存在则添加
-if ! grep -q "iface $iName inet6 dhcp" /etc/network/interfaces; then
-    sed -i "$ a iface $iName inet6 dhcp" /etc/network/interfaces
-fi
-sleep 2s
-echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
+    # 获取接口名称
+    iName=$(ip link show | grep "^[0-9]*:" | awk -F': ' 'NR==2{print $2}')
+    echo "网卡名称：$iName" # 输出网卡名称供检查
+
+    # 临时开启IPv6
+    dhclient -6 $iName
+
+    # 备份原始的网络配置文件
+    cp /etc/network/interfaces /root/interfaces.bak
+
+    # 检查并添加IPv6的配置行
+    if ! grep -q "iface $iName inet6 dhcp" /etc/network/interfaces; then
+        echo "iface $iName inet6 dhcp" | sudo tee -a /etc/network/interfaces
+    fi
+
+    # 重启网络服务
+    systemctl restart networking
+
+    # 确认IPv6地址
+    sleep 2s
+    echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
 Ubuntu_IPv6(){
 
-yamlName=$(find /etc/netplan/ -iname "*.yaml")
-iName=$(ip add | grep "^2: " | awk -F'[ :]' '{print $3}')
-dhclient -6 $iName
-MAC=$(ip add | grep "link/ether.*brd" | awk -F' ' '{print $2}')
-IPv6=$(ip add | grep "inet6.*global" | awk -F' ' '{print $2}')
-if [[ ${#IPv6} -lt 5 ]]; then echo "Can't IPv6"; exit 1; fi
+    yamlName=$(find /etc/netplan/ -iname "*.yaml")
+    iName=$(ip link show | grep "^[0-9]*:" | awk -F': ' 'NR==2{print $2}')
+    dhclient -6 $iName
+    MAC=$(ip link show $iName | awk '/link\/ether/ {print $2}')
+    IPv6=$(ip -6 addr show $iName | awk '/inet6 .* global/ {print $2}')
 
-cp $yamlName /root/
+    if [[ -z "$IPv6" ]]; then
+        echo "Can't find IPv6 address";
+        exit 1;
+    fi
 
-cat <<0099 >$yamlName
+    cp "$yamlName" /root/netplan_backup.yaml
+
+    cat <<EOF >"$yamlName"
 network:
+   version: 2
    ethernets:
-      ens3:
+      $iName:
           dhcp4: true
           dhcp6: false
           match:
               macaddress: $MAC
           addresses:
               - $IPv6
-          set-name: $iName
-   version: 2
-0099
+EOF
 
-netplan apply
-sleep 2s
-echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
+    netplan apply
+    sleep 2s
+    echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
-myOS=$(hostnamectl | sed -n 's_.*System: \(\S*\).*_\1_p')
-#Ubuntu, Debian
-
+myOS=$(hostnamectl | grep "Operating System" | awk '{print $3}')
 if [[ "$myOS" =~ "Ubuntu" ]]; then
-echo "Ubuntu"
-Ubuntu_IPv6
+    echo "Ubuntu detected"
+    Ubuntu_IPv6
 elif [[ "$myOS" =~ "Debian" ]]; then
-echo "Debian"
-Debian_IPv6
+    echo "Debian detected"
+    Debian_IPv6
+else
+    echo "Unsupported OS"
 fi
