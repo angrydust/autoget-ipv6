@@ -1,66 +1,37 @@
-Debian_IPv6(){
+#!/bin/bash
 
-    # 获取接口名称
-    iName=$(ip link show | grep "^[0-9]*:" | awk -F': ' 'NR==2{print $2}')
-    echo "网卡名称：$iName" # 输出网卡名称供检查
+# 获取第二个网卡名称
+NIC_NAME=$(ip link show | grep "^[0-9]*:" | awk -F': ' 'NR==2{print $2}')
 
-    # 临时开启IPv6
-    dhclient -6 $iName
-
-    # 备份原始的网络配置文件
-    cp /etc/network/interfaces /root/interfaces.bak
-
-    # 检查并添加IPv6的配置行
-    if ! grep -q "iface $iName inet6 dhcp" /etc/network/interfaces; then
-        echo "iface $iName inet6 dhcp" | sudo tee -a /etc/network/interfaces
-    fi
-
-    # 重启网络服务
-    systemctl restart networking
-
-    # 确认IPv6地址
-    echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
-}
-
-Ubuntu_IPv6(){
-
-    yamlName=$(find /etc/netplan/ -iname "*.yaml")
-    iName=$(ip link show | grep "^[0-9]*:" | awk -F': ' 'NR==2{print $2}')
-    dhclient -6 $iName
-    MAC=$(ip link show $iName | awk '/link\/ether/ {print $2}')
-    IPv6=$(ip -6 addr show $iName | awk '/inet6 .* global/ {print $2}')
-
-    if [[ -z "$IPv6" ]]; then
-        echo "Can't find IPv6 address";
-        exit 1;
-    fi
-
-    cp "$yamlName" /root/netplan_backup.yaml
-
-    cat <<EOF >"$yamlName"
-network:
-   version: 2
-   ethernets:
-      $iName:
-          dhcp4: true
-          dhcp6: false
-          match:
-              macaddress: $MAC
-          addresses:
-              - $IPv6
-EOF
-
-    netplan apply
-    echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
-}
-
-myOS=$(hostnamectl | grep "Operating System" | awk '{print $3}')
-if [[ "$myOS" =~ "Ubuntu" ]]; then
-    echo "Ubuntu detected"
-    Ubuntu_IPv6
-elif [[ "$myOS" =~ "Debian" ]]; then
-    echo "Debian detected"
-    Debian_IPv6
-else
-    echo "Unsupported OS"
+# 检查是否成功获取到网卡名
+if [ -z "$NIC_NAME" ]; then
+    echo "未找到网卡名称。"
+    exit 1
 fi
+
+# 设置文件路径
+NETWORK_FILE="/etc/systemd/network/$NIC_NAME.network"
+
+# 如果文件不存在则创建并写入内容
+if [ ! -f "$NETWORK_FILE" ]; then
+    echo "创建文件 $NETWORK_FILE"
+    cat <<EOF > "$NETWORK_FILE"
+[Match]
+Name=$NIC_NAME
+
+[Network]
+DHCP=ipv4
+LinkLocalAddressing=ipv6
+NTP=169.254.169.254
+EOF
+else
+    echo "文件 $NETWORK_FILE 已存在。"
+fi
+
+# 停止并启动服务
+systemctl stop networking && systemctl stop ifup@"$NIC_NAME" && systemctl start systemd-networkd
+
+systemctl enable systemd-networkd
+apt purge -y --auto-remove ifupdown isc-dhcp-client
+
+echo "配置已完成并已设置开机自启。"
