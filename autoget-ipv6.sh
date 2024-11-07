@@ -19,7 +19,6 @@ Debian_IPv6(){
     systemctl restart networking
 
     # 确认IPv6地址
-    sleep 2s
     echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
@@ -52,7 +51,6 @@ network:
 EOF
 
     netplan apply
-    sleep 2s
     echo "Your IPv6 address is: $(curl -s -6 ip.sb)"
 }
 
