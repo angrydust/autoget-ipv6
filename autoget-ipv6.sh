@@ -26,6 +26,7 @@ NTP=169.254.169.254
 EOF
 else
     echo "文件 $NETWORK_FILE 已存在。"
+    exit 1
 fi
 
 # 停止并启动服务
